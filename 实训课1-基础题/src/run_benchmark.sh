@@ -1,4 +1,4 @@
- #!/bin/bash
+#!/bin/bash
 
 # 清理之前的性能结果文件
 rm -f performance_results.txt
@@ -16,6 +16,9 @@ echo "运行CPU分块优化版本..."
 ./outputfile block
 
 echo "运行CPU MPI版本（4进程）..."
+# 添加允许root运行的参数
+export OMPI_ALLOW_RUN_AS_ROOT=1
+export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 mpirun -np 4 ./outputfile mpi
 
 # DCU性能分析
@@ -36,6 +39,8 @@ echo "3. 运行DCU版本..."
 
 # 生成性能对比图表
 echo "生成性能对比图表..."
+# 安装必要的Python包
+pip install -q pandas matplotlib seaborn
 python plot_performance.py
 
 echo "性能测试完成。结果文件："

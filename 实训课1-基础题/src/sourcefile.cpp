@@ -65,6 +65,7 @@ void matmul_openmp(const std::vector<double> &A,
                    const std::vector<double> &B,
                    std::vector<double> &C, int N, int M, int P)
 {
+    std::fill(C.begin(), C.end(), 0.0);
 #pragma omp parallel for collapse(2)
     for (int i = 0; i < N; ++i)
     {
@@ -104,7 +105,7 @@ void matmul_block_tiling(const std::vector<double> &A,
                 {
                     for (int jj = j; jj < j_end; ++jj)
                     {
-                        double sum = C[ii * P + jj];
+                        double sum = C[ii * P + jj]; // 累加到现有结果上
                         for (int kk = k; kk < k_end; ++kk)
                         {
                             sum += A[ii * M + kk] * B[kk * P + jj];
