@@ -3,6 +3,9 @@
 #include <vector>
 #include <random>
 #include <cmath>
+#include <chrono>
+#include <fstream>
+#include <iomanip>
 
 // 编译
 // hipcc sourcefile_dcu.cpp -o outputfile_dcu
@@ -61,17 +64,36 @@ bool validate(const std::vector<double> &ref, const std::vector<double> &test)
     return true;
 }
 
+// 性能测试函数
+void benchmark_and_save(const std::string &method, double time_ms)
+{
+    std::ofstream outfile("performance_results.txt", std::ios::app);
+    outfile << method << "," << time_ms << std::endl;
+}
+
 int main()
 {
+    const int NUM_RUNS = 5; // 每种方法运行5次取平均
+    double total_time_cpu = 0.0;
+    double total_time_dcu = 0.0;
+
     std::vector<double> A(N * M), B(M * P), C(N * P), C_ref(N * P);
     init_matrix(A);
     init_matrix(B);
 
-    // CPU baseline
-    matmul_cpu(A, B, C_ref);
+    // CPU baseline timing
+    for (int run = 0; run < NUM_RUNS; ++run)
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        matmul_cpu(A, B, C_ref);
+        auto end = std::chrono::high_resolution_clock::now();
+        total_time_cpu += std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    }
+    double avg_time_cpu = total_time_cpu / NUM_RUNS;
+    std::cout << "[CPU] Average time: " << avg_time_cpu << " ms" << std::endl;
+    benchmark_and_save("CPU", avg_time_cpu);
 
-    // 主要修改部分
-    // Allocate and copy to device, use matmul_kernel to compute in DCU
+    // DCU implementation and timing
     double *d_A, *d_B, *d_C;
 
     // 分配设备内存
@@ -79,27 +101,43 @@ int main()
     hipMalloc(&d_B, M * P * sizeof(double));
     hipMalloc(&d_C, N * P * sizeof(double));
 
-    // 将数据从主机复制到设备
-    hipMemcpy(d_A, A.data(), N * M * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(d_B, B.data(), M * P * sizeof(double), hipMemcpyHostToDevice);
-
     // 设置线程块和网格大小
     dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridDim((P + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-    // 启动内核
-    hipLaunchKernelGGL(matmul_kernel, gridDim, blockDim, 0, 0, d_A, d_B, d_C, N, M, P);
+    for (int run = 0; run < NUM_RUNS; ++run)
+    {
+        auto start = std::chrono::high_resolution_clock::now();
 
-    // 将结果从设备复制回主机
-    hipMemcpy(C.data(), d_C, N * P * sizeof(double), hipMemcpyDeviceToHost);
+        // 将数据从主机复制到设备
+        hipMemcpy(d_A, A.data(), N * M * sizeof(double), hipMemcpyHostToDevice);
+        hipMemcpy(d_B, B.data(), M * P * sizeof(double), hipMemcpyHostToDevice);
+
+        // 启动内核
+        hipLaunchKernelGGL(matmul_kernel, gridDim, blockDim, 0, 0, d_A, d_B, d_C, N, M, P);
+
+        // 同步设备
+        hipDeviceSynchronize();
+
+        // 将结果从设备复制回主机
+        hipMemcpy(C.data(), d_C, N * P * sizeof(double), hipMemcpyDeviceToHost);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        total_time_dcu += std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    }
+
+    double avg_time_dcu = total_time_dcu / NUM_RUNS;
+    std::cout << "[DCU] Average time: " << avg_time_dcu << " ms" << std::endl;
+    std::cout << "[DCU] Speedup over CPU: " << avg_time_cpu / avg_time_dcu << "x" << std::endl;
+    benchmark_and_save("DCU", avg_time_dcu);
 
     if (validate(C_ref, C))
     {
-        std::cout << "[HIP] Valid: 1" << std::endl;
+        std::cout << "[DCU] Valid: 1" << std::endl;
     }
     else
     {
-        std::cout << "[HIP] Valid: 0" << std::endl;
+        std::cout << "[DCU] Valid: 0" << std::endl;
     }
 
     hipFree(d_A);

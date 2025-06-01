@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <omp.h>
 #include <mpi.h>
+#include <chrono>
+#include <fstream>
+#include <iomanip>
 
 // 编译执行方式参考：
 // 编译， 也可以使用g++，但使用MPI时需使用mpic
@@ -202,15 +205,35 @@ void matmul_other(const std::vector<double> &A,
     std::cout << "Other methods..." << std::endl;
 }
 
+// 性能测试函数
+void benchmark_and_save(const std::string &method, double time_ms)
+{
+    std::ofstream outfile("performance_results.txt", std::ios::app);
+    outfile << method << "," << time_ms << std::endl;
+}
+
 int main(int argc, char **argv)
 {
     const int N = 1024, M = 2048, P = 512;
     std::string mode = argc >= 2 ? argv[1] : "baseline";
+    const int NUM_RUNS = 5; // 每种方法运行5次取平均
 
     if (mode == "mpi")
     {
         MPI_Init(&argc, &argv);
+
+        auto start = std::chrono::high_resolution_clock::now();
         matmul_mpi(N, M, P);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        if (rank == 0)
+        {
+            benchmark_and_save("MPI", duration);
+        }
+
         MPI_Finalize();
         return 0;
     }
@@ -222,31 +245,75 @@ int main(int argc, char **argv)
 
     init_matrix(A, N, M);
     init_matrix(B, M, P);
-    matmul_baseline(A, B, C_ref, N, M, P);
 
-    if (mode == "baseline")
+    double total_time = 0.0;
+
+    for (int run = 0; run < NUM_RUNS; ++run)
     {
-        std::cout << "[Baseline] Done.\n";
+        if (mode == "baseline")
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            matmul_baseline(A, B, C_ref, N, M, P);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            total_time += duration;
+
+            if (run == NUM_RUNS - 1)
+            {
+                std::cout << "[Baseline] Average time: " << total_time / NUM_RUNS << " ms" << std::endl;
+                benchmark_and_save("Baseline", total_time / NUM_RUNS);
+            }
+        }
+        else if (mode == "openmp")
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            matmul_openmp(A, B, C, N, M, P);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            total_time += duration;
+
+            if (run == NUM_RUNS - 1)
+            {
+                std::cout << "[OpenMP] Average time: " << total_time / NUM_RUNS << " ms" << std::endl;
+                std::cout << "[OpenMP] Valid: " << validate(C, C_ref, N, P) << std::endl;
+                benchmark_and_save("OpenMP", total_time / NUM_RUNS);
+            }
+        }
+        else if (mode == "block")
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            matmul_block_tiling(A, B, C, N, M, P, 64);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            total_time += duration;
+
+            if (run == NUM_RUNS - 1)
+            {
+                std::cout << "[Block] Average time: " << total_time / NUM_RUNS << " ms" << std::endl;
+                std::cout << "[Block] Valid: " << validate(C, C_ref, N, P) << std::endl;
+                benchmark_and_save("Block", total_time / NUM_RUNS);
+            }
+        }
+        else if (mode == "other")
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            matmul_other(A, B, C, N, M, P);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            total_time += duration;
+
+            if (run == NUM_RUNS - 1)
+            {
+                std::cout << "[Other] Average time: " << total_time / NUM_RUNS << " ms" << std::endl;
+                std::cout << "[Other] Valid: " << validate(C, C_ref, N, P) << std::endl;
+                benchmark_and_save("Other", total_time / NUM_RUNS);
+            }
+        }
+        else
+        {
+            std::cerr << "Usage: ./main [baseline|openmp|block|mpi]" << std::endl;
+            return 1;
+        }
     }
-    else if (mode == "openmp")
-    {
-        matmul_openmp(A, B, C, N, M, P);
-        std::cout << "[OpenMP] Valid: " << validate(C, C_ref, N, P) << std::endl;
-    }
-    else if (mode == "block")
-    {
-        matmul_block_tiling(A, B, C, N, M, P, 64);
-        std::cout << "[Block Parallel] Valid: " << validate(C, C_ref, N, P) << std::endl;
-    }
-    else if (mode == "other")
-    {
-        matmul_other(A, B, C, N, M, P);
-        std::cout << "[Other] Valid: " << validate(C, C_ref, N, P) << std::endl;
-    }
-    else
-    {
-        std::cerr << "Usage: ./main [baseline|openmp|block|mpi]" << std::endl;
-    }
-    // 需额外增加性能评测代码或其他工具进行评测
     return 0;
 }
