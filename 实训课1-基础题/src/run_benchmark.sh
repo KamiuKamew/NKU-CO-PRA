@@ -17,9 +17,7 @@ echo "运行CPU分块优化版本..."
 
 echo "运行CPU MPI版本（4进程）..."
 # 添加允许root运行的参数
-export OMPI_ALLOW_RUN_AS_ROOT=1
-export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
-mpirun -np 4 ./outputfile mpi
+mpirun --allow-run-as-root -np 4 ./outputfile mpi
 
 # DCU性能分析
 echo "运行DCU版本性能分析..."

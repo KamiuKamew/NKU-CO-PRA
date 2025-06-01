@@ -40,9 +40,37 @@ void init_matrix(std::vector<double> &mat, int rows, int cols)
 // 验证计算优化后的矩阵计算和baseline实现是否结果一致，可以设计其他验证方法，来验证计算的正确性和性能
 bool validate(const std::vector<double> &A, const std::vector<double> &B, int rows, int cols, double tol = 1e-6)
 {
+    int error_count = 0;
+    double max_error = 0.0;
+    int first_error_idx = -1;
+
     for (int i = 0; i < rows * cols; ++i)
-        if (std::abs(A[i] - B[i]) > tol)
-            return false;
+    {
+        double error = std::abs(A[i] - B[i]);
+        if (error > tol)
+        {
+            error_count++;
+            if (error > max_error)
+            {
+                max_error = error;
+            }
+            if (first_error_idx == -1)
+            {
+                first_error_idx = i;
+            }
+        }
+    }
+
+    if (error_count > 0)
+    {
+        std::cout << "[DEBUG] Validation failed:" << std::endl;
+        std::cout << "[DEBUG] Total errors: " << error_count << " out of " << rows * cols << std::endl;
+        std::cout << "[DEBUG] Max error: " << max_error << std::endl;
+        std::cout << "[DEBUG] First error at index " << first_error_idx
+                  << ": expected " << B[first_error_idx]
+                  << ", got " << A[first_error_idx] << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -247,6 +275,12 @@ int main(int argc, char **argv)
     init_matrix(A, N, M);
     init_matrix(B, M, P);
 
+    // 计算基准结果
+    std::cout << "[DEBUG] Computing baseline reference..." << std::endl;
+    matmul_baseline(A, B, C_ref, N, M, P);
+    std::cout << "[DEBUG] Baseline reference computed. Sample values: "
+              << C_ref[0] << ", " << C_ref[1] << ", " << C_ref[N * P - 1] << std::endl;
+
     double total_time = 0.0;
 
     for (int run = 0; run < NUM_RUNS; ++run)
@@ -267,6 +301,7 @@ int main(int argc, char **argv)
         }
         else if (mode == "openmp")
         {
+            std::cout << "[DEBUG] OpenMP run " << run + 1 << "..." << std::endl;
             auto start = std::chrono::high_resolution_clock::now();
             matmul_openmp(A, B, C, N, M, P);
             auto end = std::chrono::high_resolution_clock::now();
@@ -275,6 +310,8 @@ int main(int argc, char **argv)
 
             if (run == NUM_RUNS - 1)
             {
+                std::cout << "[DEBUG] OpenMP result sample values: "
+                          << C[0] << ", " << C[1] << ", " << C[N * P - 1] << std::endl;
                 std::cout << "[OpenMP] Average time: " << total_time / NUM_RUNS << " ms" << std::endl;
                 std::cout << "[OpenMP] Valid: " << validate(C, C_ref, N, P) << std::endl;
                 benchmark_and_save("OpenMP", total_time / NUM_RUNS);
@@ -282,6 +319,7 @@ int main(int argc, char **argv)
         }
         else if (mode == "block")
         {
+            std::cout << "[DEBUG] Block run " << run + 1 << "..." << std::endl;
             auto start = std::chrono::high_resolution_clock::now();
             matmul_block_tiling(A, B, C, N, M, P, 64);
             auto end = std::chrono::high_resolution_clock::now();
@@ -290,6 +328,8 @@ int main(int argc, char **argv)
 
             if (run == NUM_RUNS - 1)
             {
+                std::cout << "[DEBUG] Block result sample values: "
+                          << C[0] << ", " << C[1] << ", " << C[N * P - 1] << std::endl;
                 std::cout << "[Block] Average time: " << total_time / NUM_RUNS << " ms" << std::endl;
                 std::cout << "[Block] Valid: " << validate(C, C_ref, N, P) << std::endl;
                 benchmark_and_save("Block", total_time / NUM_RUNS);

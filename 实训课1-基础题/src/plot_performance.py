@@ -6,7 +6,8 @@ import seaborn as sns
 df = pd.read_csv("performance_results.txt", header=None, names=["Method", "Time"])
 
 # 设置样式
-plt.style.use("seaborn")
+plt.rcParams["figure.figsize"] = (10, 6)
+plt.rcParams["font.size"] = 12
 sns.set_palette("husl")
 
 # 创建柱状图
@@ -17,26 +18,29 @@ plt.xlabel("Implementation Method")
 plt.ylabel("Average Execution Time (ms)")
 
 # 添加数值标签
-for i in ax.containers:
-    ax.bar_label(i, fmt="%.2f")
+for i, v in enumerate(df["Time"]):
+    ax.text(i, v + max(df["Time"]) * 0.01, f"{v:.2f}", ha="center", va="bottom")
 
 # 保存柱状图
-plt.savefig("performance_comparison_bar.png")
+plt.tight_layout()
+plt.savefig("performance_comparison_bar.png", dpi=300, bbox_inches="tight")
 plt.close()
 
 # 创建折线图
 plt.figure(figsize=(10, 6))
-sns.lineplot(data=df, x="Method", y="Time", marker="o")
+plt.plot(df["Method"], df["Time"], marker="o", linewidth=2, markersize=8)
 plt.title("Matrix Multiplication Performance Trend")
 plt.xlabel("Implementation Method")
 plt.ylabel("Average Execution Time (ms)")
+plt.xticks(rotation=45)
 
 # 添加数值标签
 for x, y in zip(range(len(df)), df["Time"]):
-    plt.text(x, y, f"{y:.2f}", ha="center", va="bottom")
+    plt.text(x, y + max(df["Time"]) * 0.02, f"{y:.2f}", ha="center", va="bottom")
 
 # 保存折线图
-plt.savefig("performance_comparison_line.png")
+plt.tight_layout()
+plt.savefig("performance_comparison_line.png", dpi=300, bbox_inches="tight")
 plt.close()
 
 # 计算加速比
@@ -51,11 +55,12 @@ plt.xlabel("Implementation Method")
 plt.ylabel("Speedup (x)")
 
 # 添加数值标签
-for i in ax.containers:
-    ax.bar_label(i, fmt="%.2fx")
+for i, v in enumerate(df["Speedup"]):
+    ax.text(i, v + max(df["Speedup"]) * 0.01, f"{v:.2f}x", ha="center", va="bottom")
 
 # 保存加速比图
-plt.savefig("speedup_comparison.png")
+plt.tight_layout()
+plt.savefig("speedup_comparison.png", dpi=300, bbox_inches="tight")
 plt.close()
 
 # 打印性能统计信息
