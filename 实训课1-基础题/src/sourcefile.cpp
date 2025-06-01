@@ -62,21 +62,136 @@ void matmul_openmp(const std::vector<double> &A,
                    const std::vector<double> &B,
                    std::vector<double> &C, int N, int M, int P)
 {
-    std::cout << "matmul_openmp methods..." << std::endl;
+#pragma omp parallel for collapse(2)
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < P; ++j)
+        {
+            double sum = 0.0;
+            for (int k = 0; k < M; ++k)
+            {
+                sum += A[i * M + k] * B[k * P + j];
+            }
+            C[i * P + j] = sum;
+        }
+    }
 }
 
 // 方式2: 利用子块并行思想，进行缓存友好型的并行优化方法 （主要修改函数)
 void matmul_block_tiling(const std::vector<double> &A,
                          const std::vector<double> &B,
-                         std::vector<double> &C, int N, int M, int P, int block_size = 64)
+                         std::vector<double> &C, int N, int M, int P, int block_size)
 {
-    std::cout << "matmul_block_tiling methods..." << std::endl;
+    std::fill(C.begin(), C.end(), 0.0);
+
+#pragma omp parallel for collapse(3)
+    for (int i = 0; i < N; i += block_size)
+    {
+        for (int j = 0; j < P; j += block_size)
+        {
+            for (int k = 0; k < M; k += block_size)
+            {
+                // 计算当前块的实际大小
+                int i_end = std::min(i + block_size, N);
+                int j_end = std::min(j + block_size, P);
+                int k_end = std::min(k + block_size, M);
+
+                // 对块内元素进行计算
+                for (int ii = i; ii < i_end; ++ii)
+                {
+                    for (int jj = j; jj < j_end; ++jj)
+                    {
+                        double sum = C[ii * P + jj];
+                        for (int kk = k; kk < k_end; ++kk)
+                        {
+                            sum += A[ii * M + kk] * B[kk * P + jj];
+                        }
+                        C[ii * P + jj] = sum;
+                    }
+                }
+            }
+        }
+    }
 }
 
 // 方式3: 利用MPI消息传递，实现多进程并行优化 （主要修改函数）
 void matmul_mpi(int N, int M, int P)
 {
-    std::cout << "matmul_mpi methods..." << std::endl;
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    // 计算每个进程需要处理的行数
+    int rows_per_proc = N / size;
+    int extra_rows = N % size;
+    int my_rows = rows_per_proc + (rank < extra_rows ? 1 : 0);
+    int my_start = rank * rows_per_proc + std::min(rank, extra_rows);
+
+    // 分配局部矩阵内存
+    std::vector<double> A_local(my_rows * M);
+    std::vector<double> B(M * P);
+    std::vector<double> C_local(my_rows * P, 0);
+    std::vector<double> A, C;
+
+    // 在根进程初始化矩阵
+    if (rank == 0)
+    {
+        A.resize(N * M);
+        C.resize(N * P);
+        init_matrix(A, N, M);
+        init_matrix(B, M, P);
+    }
+
+    // 广播矩阵B到所有进程
+    MPI_Bcast(B.data(), M * P, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // 分发矩阵A的行到各个进程
+    std::vector<int> sendcounts(size);
+    std::vector<int> displs(size);
+    for (int i = 0; i < size; i++)
+    {
+        sendcounts[i] = (rows_per_proc + (i < extra_rows ? 1 : 0)) * M;
+        displs[i] = (i * rows_per_proc + std::min(i, extra_rows)) * M;
+    }
+
+    MPI_Scatterv(rank == 0 ? A.data() : nullptr, sendcounts.data(), displs.data(),
+                 MPI_DOUBLE, A_local.data(), my_rows * M, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+// 计算局部矩阵乘法
+#pragma omp parallel for collapse(2)
+    for (int i = 0; i < my_rows; ++i)
+    {
+        for (int j = 0; j < P; ++j)
+        {
+            double sum = 0.0;
+            for (int k = 0; k < M; ++k)
+            {
+                sum += A_local[i * M + k] * B[k * P + j];
+            }
+            C_local[i * P + j] = sum;
+        }
+    }
+
+    // 收集结果到根进程
+    std::vector<int> recvcounts(size);
+    std::vector<int> rdispls(size);
+    for (int i = 0; i < size; i++)
+    {
+        recvcounts[i] = (rows_per_proc + (i < extra_rows ? 1 : 0)) * P;
+        rdispls[i] = (i * rows_per_proc + std::min(i, extra_rows)) * P;
+    }
+
+    MPI_Gatherv(C_local.data(), my_rows * P, MPI_DOUBLE,
+                rank == 0 ? C.data() : nullptr, recvcounts.data(), rdispls.data(),
+                MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // 在根进程验证结果
+    if (rank == 0)
+    {
+        std::vector<double> C_ref(N * P);
+        matmul_baseline(A, B, C_ref, N, M, P);
+        std::cout << "[MPI] Valid: " << validate(C, C_ref, N, P) << std::endl;
+    }
 }
 
 // 方式4: 其他方式 （主要修改函数）
@@ -120,7 +235,7 @@ int main(int argc, char **argv)
     }
     else if (mode == "block")
     {
-        matmul_block_tiling(A, B, C, N, M, P);
+        matmul_block_tiling(A, B, C, N, M, P, 64);
         std::cout << "[Block Parallel] Valid: " << validate(C, C_ref, N, P) << std::endl;
     }
     else if (mode == "other")
