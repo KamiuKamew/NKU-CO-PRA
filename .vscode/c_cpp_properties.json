@@ -1,0 +1,27 @@
+{
+  "configurations": [
+    {
+      "name": "linux-clang-x64",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "/usr/lib/gcc/x86_64-linux-gnu/13/include",
+        "/usr/lib/x86_64-linux-gnu/openmpi/include",
+        "/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi",
+        "/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi/opal",
+        "/usr/include",
+        "/usr/local/include"
+      ],
+      "defines": [],
+      "compilerPath": "/usr/bin/mpic++",
+      "cStandard": "c17",
+      "cppStandard": "c++14",
+      "intelliSenseMode": "linux-clang-x64",
+      "compilerArgs": [
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi",
+        "-I/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi/opal"
+      ]
+    }
+  ],
+  "version": 4
+}
