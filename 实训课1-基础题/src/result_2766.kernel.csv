@@ -1,0 +1,3 @@
+"Name","Pars","Calls","TotalDurationNs","AverageNs","Percentage"
+"matmul_kernel(double const*, double const*, double*, int, int, int)","(1,64,32),(1,16,16) ","5","35028207","7005641","100.0"
+"Total"," ","5","35028207","7005641","100.0"

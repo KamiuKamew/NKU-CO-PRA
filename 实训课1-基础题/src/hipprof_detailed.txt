@@ -1,0 +1,55 @@
+Full path: /opt/dtk-24.04/hip/bin/hipprof
+Usage:
+  hipprof [options] <app command line>
+
+Options:
+  -h                          - this help
+  -i <.txt file>              - input file .txt format. Example:pmc:GRBM_COUNT GRBM_GUI_ACTIVE SQ_INSTS_FLAT
+  -o <output file>            - output CSV file [<result_pid>.csv]
+  -d <data directory>         - to change the data directory [.]
+
+tracing options:
+  --hiptx-trace               - to enable hipTX application code annotation trace, "Markers and Ranges" JSON trace section.
+  --hip-trace                 - to trace HIP, generates API execution stats and JSON file chrome-tracing compatible.
+  --barrier                   - export barrier info into JSON file.
+  --stats                     - print and export statistics only without JSON file.
+  --segment-size              - number of hipAPI entries used for the segment of the json file, at least 5000.
+  --hid-args                  - tracking not collects args and compresses memory usage
+  --devices                   - only the OPS and COPY of the specified device are output
+  --print-trace               - print performance analysis process data on the terminal
+  --mask-trace <config file>  - specify APIs for analysis and reduce the amount of data to analyze
+  --trace-off                 - to disable tracing on start
+  --mpi-trace                 - to trace mpi application.
+  --db <db file name>         - re export json file by exist db file.
+  --db-merge <db file path>   - merge mutipe db files and export new combined json.
+  --merge-type                - select merge type, 0 is default original time, 1 is time alignment.
+  --index-range <start:end>   - to export partial data by index range, start and end are separated by ':'.
+  --group-stream              - to export json time line group by stream.
+  --output-type <type code>   - set 0 (default) then export json file and set 1 export html
+  --buffer-size               - auto flush memory to database when api record count is larger than buffer-size, default is 100000.
+
+leak-check options:
+  --leak-check                - check host and device leak memory, output .leakcheck.html file [<result_pid>.leakcheck.html] and .leakcheck.html file [<result_pid>.mem.html].
+  --check-minsize <size>      - less than this size, no stack information is generated, default is 1024.
+  --memory-usage              - based on leak-check, and generates memory use chart webpage. output .mem.html file [<result_pid>.mem.html].
+  --time-range <start:end>    - to export leak memory info by time range(Unit second), start and end are separated by ':'.
+
+session options:
+  --session <session name>    - dynamic control of the performance analysis process through the session
+  --start                     - use instruction to control tracing --session <session name> <--start>
+  --stop                      - use instruction to control tracing --session <session name> <--stop>
+  --flush                     - use instruction to control tracing --session <session name> <--flush>
+
+pmc options:
+  --pmc                       - to open pmc performence profile.
+  --pmc-read                  - to open pmc read focus profile.
+  --pmc-write                 - to open pmc write focus profile.
+  --pmc-type                  - select pmc export type 0(default) is full name of performence, 1 is simplified name, 2 is basic data, 3 is csv table
+  --kernel-name <kernel>      - filter the kernel name for profiling.
+
+coredump analyzer options:
+  --input-core <core file>    - enable core dump analyzer and set input core file.
+
+sqtt options:
+  --sqtt                      - Sequencer Thread Trace of kernel function.
+  --sqtt-type <type code>     - 2:add VALU, STALL summary function in sqtt data output.
