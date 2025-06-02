@@ -12,7 +12,7 @@
 
 #define BATCH 1024
 #define I 10
-#define H 20
+#define H_SIZE 20
 #define O 5
 #define BLOCK_SIZE 16
 
@@ -69,21 +69,21 @@ void mlp_forward_cpu(const std::vector<double> &X, const std::vector<double> &W1
                      const std::vector<double> &W2, const std::vector<double> &B2,
                      std::vector<double> &Y)
 {
-    std::vector<double> H(BATCH * H);
+    std::vector<double> H(BATCH * H_SIZE);
 
     // 第一层：H = X * W1 + B1
     for (int i = 0; i < BATCH; ++i)
     {
-        for (int j = 0; j < H; ++j)
+        for (int j = 0; j < H_SIZE; ++j)
         {
             double sum = 0.0;
             for (int k = 0; k < I; ++k)
             {
-                sum += X[i * I + k] * W1[k * H + j];
+                sum += X[i * I + k] * W1[k * H_SIZE + j];
             }
-            H[i * H + j] = sum + B1[j];
+            H[i * H_SIZE + j] = sum + B1[j];
             // ReLU
-            H[i * H + j] = std::max(0.0, H[i * H + j]);
+            H[i * H_SIZE + j] = std::max(0.0, H[i * H_SIZE + j]);
         }
     }
 
@@ -93,9 +93,9 @@ void mlp_forward_cpu(const std::vector<double> &X, const std::vector<double> &W1
         for (int j = 0; j < O; ++j)
         {
             double sum = 0.0;
-            for (int k = 0; k < H; ++k)
+            for (int k = 0; k < H_SIZE; ++k)
             {
-                sum += H[i * H + k] * W2[k * O + j];
+                sum += H[i * H_SIZE + k] * W2[k * O + j];
             }
             Y[i * O + j] = sum + B2[j];
         }
@@ -124,8 +124,8 @@ int main()
     srand(42); // 固定随机种子确保可重现性
 
     // 主机端数据
-    std::vector<double> h_X(BATCH * I), h_W1(I * H), h_B1(H), h_W2(H * O), h_B2(O);
-    std::vector<double> h_H(BATCH * H), h_Y(BATCH * O);
+    std::vector<double> h_X(BATCH * I), h_W1(I * H_SIZE), h_B1(H_SIZE), h_W2(H_SIZE * O), h_B2(O);
+    std::vector<double> h_H(BATCH * H_SIZE), h_Y(BATCH * O);
     std::vector<double> h_Y_cpu(BATCH * O); // CPU验证结果
 
     // 初始化数据
@@ -136,7 +136,7 @@ int main()
     random_init(h_B2);
 
     std::cout << "MLP Forward Propagation - DCU Implementation" << std::endl;
-    std::cout << "Network: " << BATCH << "×" << I << " → " << I << "×" << H << " (ReLU) → " << H << "×" << O << std::endl;
+    std::cout << "Network: " << BATCH << "×" << I << " → " << I << "×" << H_SIZE << " (ReLU) → " << H_SIZE << "×" << O << std::endl;
 
     // CPU基准计算
     auto cpu_start = std::chrono::high_resolution_clock::now();
@@ -149,36 +149,36 @@ int main()
 
     // 分配设备内存
     hipMalloc(&d_X, BATCH * I * sizeof(double));
-    hipMalloc(&d_W1, I * H * sizeof(double));
-    hipMalloc(&d_B1, H * sizeof(double));
-    hipMalloc(&d_H, BATCH * H * sizeof(double));
-    hipMalloc(&d_W2, H * O * sizeof(double));
+    hipMalloc(&d_W1, I * H_SIZE * sizeof(double));
+    hipMalloc(&d_B1, H_SIZE * sizeof(double));
+    hipMalloc(&d_H, BATCH * H_SIZE * sizeof(double));
+    hipMalloc(&d_W2, H_SIZE * O * sizeof(double));
     hipMalloc(&d_B2, O * sizeof(double));
     hipMalloc(&d_Y, BATCH * O * sizeof(double));
 
     // 拷贝数据到设备
     hipMemcpy(d_X, h_X.data(), BATCH * I * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(d_W1, h_W1.data(), I * H * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(d_B1, h_B1.data(), H * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(d_W2, h_W2.data(), H * O * sizeof(double), hipMemcpyHostToDevice);
+    hipMemcpy(d_W1, h_W1.data(), I * H_SIZE * sizeof(double), hipMemcpyHostToDevice);
+    hipMemcpy(d_B1, h_B1.data(), H_SIZE * sizeof(double), hipMemcpyHostToDevice);
+    hipMemcpy(d_W2, h_W2.data(), H_SIZE * O * sizeof(double), hipMemcpyHostToDevice);
     hipMemcpy(d_B2, h_B2.data(), O * sizeof(double), hipMemcpyHostToDevice);
 
     auto gpu_start = std::chrono::high_resolution_clock::now();
 
     // 第一层：隐藏层计算 H = X * W1 + B1，然后ReLU
     dim3 block1(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 grid1((H + BLOCK_SIZE - 1) / BLOCK_SIZE, (BATCH + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    dim3 grid1((H_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE, (BATCH + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-    hipLaunchKernelGGL(matmul_kernel, grid1, block1, 0, 0, d_X, d_W1, d_H, BATCH, H, I);
-    hipLaunchKernelGGL(add_bias_kernel, grid1, block1, 0, 0, d_H, d_B1, BATCH, H);
+    hipLaunchKernelGGL(matmul_kernel, grid1, block1, 0, 0, d_X, d_W1, d_H, BATCH, H_SIZE, I);
+    hipLaunchKernelGGL(add_bias_kernel, grid1, block1, 0, 0, d_H, d_B1, BATCH, H_SIZE);
 
-    int threads_relu1 = (BATCH * H + 255) / 256;
-    hipLaunchKernelGGL(relu_kernel, dim3(threads_relu1), dim3(256), 0, 0, d_H, BATCH * H);
+    int threads_relu1 = (BATCH * H_SIZE + 255) / 256;
+    hipLaunchKernelGGL(relu_kernel, dim3(threads_relu1), dim3(256), 0, 0, d_H, BATCH * H_SIZE);
 
     // 第二层：输出层计算 Y = H * W2 + B2
     dim3 grid2((O + BLOCK_SIZE - 1) / BLOCK_SIZE, (BATCH + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-    hipLaunchKernelGGL(matmul_kernel, grid2, block1, 0, 0, d_H, d_W2, d_Y, BATCH, O, H);
+    hipLaunchKernelGGL(matmul_kernel, grid2, block1, 0, 0, d_H, d_W2, d_Y, BATCH, O, H_SIZE);
     hipLaunchKernelGGL(add_bias_kernel, grid2, block1, 0, 0, d_Y, d_B2, BATCH, O);
 
     // 同步设备
@@ -202,22 +202,10 @@ int main()
     }
     else
     {
-        std::cout << "\n✗ Validation FAILED: DCU results differ from CPU baseline" << std::endl;
+        std::cout << "\n✗ Validation FAILED: Results differ between CPU and DCU" << std::endl;
     }
 
-    // 打印部分输出结果
-    std::cout << "\n=== Sample Outputs ===" << std::endl;
-    for (int i = 0; i < 5; ++i)
-    {
-        std::cout << "Batch[" << i << "]: ";
-        for (int j = 0; j < O; ++j)
-        {
-            std::cout << h_Y[i * O + j] << " ";
-        }
-        std::cout << std::endl;
-    }
-
-    // 清理设备内存
+    // 释放设备内存
     hipFree(d_X);
     hipFree(d_W1);
     hipFree(d_B1);
