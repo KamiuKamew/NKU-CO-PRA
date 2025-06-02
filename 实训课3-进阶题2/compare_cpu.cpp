@@ -271,18 +271,51 @@ public:
     // 推理
     void predict(const std::vector<double> &input, std::vector<double> &pred, int batch_size)
     {
-        // 简化版前向传播
+        // 创建独立的输入缓冲区（填充到BATCH_SIZE）
         std::vector<double> temp_input(BATCH_SIZE * INPUT_DIM, 0.0);
+        std::vector<double> temp_output(BATCH_SIZE * OUTPUT_DIM, 0.0);
+        std::vector<double> temp_hidden(BATCH_SIZE * HIDDEN_DIM, 0.0);
+        std::vector<double> temp_hidden_no_relu(BATCH_SIZE * HIDDEN_DIM, 0.0);
+
+        // 复制实际输入数据
         for (int i = 0; i < batch_size * INPUT_DIM; i++)
         {
             temp_input[i] = input[i];
         }
 
-        forward(temp_input);
+        // 独立的前向传播计算（不影响训练状态）
+        // 第一层: hidden = input * W1 + b1
+        matmul(temp_input, W1, temp_hidden_no_relu, BATCH_SIZE, HIDDEN_DIM, INPUT_DIM);
 
+        for (int i = 0; i < BATCH_SIZE; i++)
+        {
+            for (int j = 0; j < HIDDEN_DIM; j++)
+            {
+                temp_hidden_no_relu[i * HIDDEN_DIM + j] += b1[j];
+            }
+        }
+
+        // ReLU激活
+        for (int i = 0; i < BATCH_SIZE * HIDDEN_DIM; i++)
+        {
+            temp_hidden[i] = std::max(0.0, temp_hidden_no_relu[i]);
+        }
+
+        // 第二层: output = hidden * W2 + b2
+        matmul(temp_hidden, W2, temp_output, BATCH_SIZE, OUTPUT_DIM, HIDDEN_DIM);
+
+        for (int i = 0; i < BATCH_SIZE; i++)
+        {
+            for (int j = 0; j < OUTPUT_DIM; j++)
+            {
+                temp_output[i * OUTPUT_DIM + j] += b2[j];
+            }
+        }
+
+        // 复制结果
         for (int i = 0; i < batch_size; i++)
         {
-            pred[i] = output[i];
+            pred[i] = temp_output[i];
         }
     }
 };
@@ -503,6 +536,7 @@ training_complete:
     int test_samples = std::min(10, test_size);
     std::vector<double> predictions(test_samples);
 
+    std::cout << "开始逐样本推理测试..." << std::endl;
     for (int i = 0; i < test_samples; i++)
     {
         std::vector<double> test_input(INPUT_DIM);
@@ -514,6 +548,9 @@ training_complete:
         std::vector<double> pred(1);
         model.predict(test_input, pred, 1);
         predictions[i] = pred[0];
+
+        // 添加调试信息：打印归一化预测值
+        std::cout << "样本 " << i + 1 << " 归一化预测值: " << pred[0] << std::endl;
     }
 
     auto infer_end = std::chrono::high_resolution_clock::now();
