@@ -142,7 +142,7 @@ int main()
     auto cpu_start = std::chrono::high_resolution_clock::now();
     mlp_forward_cpu(h_X, h_W1, h_B1, h_W2, h_B2, h_Y_cpu);
     auto cpu_end = std::chrono::high_resolution_clock::now();
-    auto cpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(cpu_end - cpu_start).count();
+    auto cpu_time = std::chrono::duration_cast<std::chrono::microseconds>(cpu_end - cpu_start).count() / 1000.0;
 
     // DCU实现
     double *d_X, *d_W1, *d_B1, *d_H, *d_W2, *d_B2, *d_Y;
@@ -184,7 +184,7 @@ int main()
     // 同步设备
     hipDeviceSynchronize();
     auto gpu_end = std::chrono::high_resolution_clock::now();
-    auto gpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(gpu_end - gpu_start).count();
+    auto gpu_time = std::chrono::duration_cast<std::chrono::microseconds>(gpu_end - gpu_start).count() / 1000.0;
 
     // 拷贝结果回主机
     hipMemcpy(h_Y.data(), d_Y, BATCH * O * sizeof(double), hipMemcpyDeviceToHost);

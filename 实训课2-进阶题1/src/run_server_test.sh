@@ -136,10 +136,10 @@ for i in $(seq 1 $runs); do
     echo "  CPU测试第 $i/$runs 次..."
     ./mlp_cpu > temp_cpu.txt
     cpu_time=$(grep "Basic CPU Time:" temp_cpu.txt | awk '{print $4}')
-    cpu_total=$(echo "$cpu_total + $cpu_time" | bc -l)
+    cpu_total=$(awk "BEGIN {print $cpu_total + $cpu_time}")
     echo "    时间: ${cpu_time}ms"
 done
-cpu_avg=$(echo "scale=3; $cpu_total / $runs" | bc -l)
+cpu_avg=$(awk "BEGIN {printf \"%.3f\", $cpu_total / $runs}")
 echo "CPU,$cpu_avg,1.0" >> results/performance_summary.txt
 echo "✓ CPU平均时间: ${cpu_avg}ms"
 
@@ -152,11 +152,11 @@ if [ "$DCU_BASIC_AVAILABLE" = true ]; then
         echo "  DCU基础版本测试第 $i/$runs 次..."
         ./mlp_dcu_basic > temp_dcu_basic.txt
         dcu_time=$(grep "DCU Time:" temp_dcu_basic.txt | awk '{print $3}')
-        dcu_basic_total=$(echo "$dcu_basic_total + $dcu_time" | bc -l)
+        dcu_basic_total=$(awk "BEGIN {print $dcu_basic_total + $dcu_time}")
         echo "    时间: ${dcu_time}ms"
     done
-    dcu_basic_avg=$(echo "scale=3; $dcu_basic_total / $runs" | bc -l)
-    dcu_basic_speedup=$(echo "scale=2; $cpu_avg / $dcu_basic_avg" | bc -l)
+    dcu_basic_avg=$(awk "BEGIN {printf \"%.3f\", $dcu_basic_total / $runs}")
+    dcu_basic_speedup=$(awk "BEGIN {printf \"%.2f\", $cpu_avg / $dcu_basic_avg}")
     echo "DCU_Basic,$dcu_basic_avg,$dcu_basic_speedup" >> results/performance_summary.txt
     echo "✓ DCU基础版本平均时间: ${dcu_basic_avg}ms (${dcu_basic_speedup}x 加速)"
 fi
@@ -170,11 +170,11 @@ if [ "$DCU_OPT_AVAILABLE" = true ]; then
         echo "  DCU优化版本测试第 $i/$runs 次..."
         ./mlp_dcu_optimized > temp_dcu_opt.txt
         dcu_time=$(grep "DCU Time (Optimized):" temp_dcu_opt.txt | awk '{print $4}')
-        dcu_opt_total=$(echo "$dcu_opt_total + $dcu_time" | bc -l)
+        dcu_opt_total=$(awk "BEGIN {print $dcu_opt_total + $dcu_time}")
         echo "    时间: ${dcu_time}ms"
     done
-    dcu_opt_avg=$(echo "scale=3; $dcu_opt_total / $runs" | bc -l)
-    dcu_opt_speedup=$(echo "scale=2; $cpu_avg / $dcu_opt_avg" | bc -l)
+    dcu_opt_avg=$(awk "BEGIN {printf \"%.3f\", $dcu_opt_total / $runs}")
+    dcu_opt_speedup=$(awk "BEGIN {printf \"%.2f\", $cpu_avg / $dcu_opt_avg}")
     echo "DCU_Optimized,$dcu_opt_avg,$dcu_opt_speedup" >> results/performance_summary.txt
     echo "✓ DCU优化版本平均时间: ${dcu_opt_avg}ms (${dcu_opt_speedup}x 加速)"
 fi
@@ -221,7 +221,7 @@ cat > results/test_report.md << EOF
 
 ## 实验配置
 - **网络架构**: 1024×10 → 10×20 (ReLU) → 20×5
-- **总参数量**: $(echo "10*20 + 20 + 20*5 + 5" | bc) 个权重和偏置
+- **总参数量**: $(awk "BEGIN {print 10*20 + 20 + 20*5 + 5}") 个权重和偏置
 - **计算复杂度**: ~307K 次浮点运算
 - **测试次数**: $runs 次平均
 - **测试时间**: $(date)

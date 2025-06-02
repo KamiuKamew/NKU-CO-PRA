@@ -14,12 +14,12 @@
 #define I 10
 #define H_SIZE 20
 #define O 5
-#define BLOCK_SIZE 32
+#define BLOCK_SIZE 16
 #define SHARED_SIZE 32
-#define TILE_SIZE 32
+#define TILE_SIZE 16
 
 // 优化版矩阵乘法内核 - 使用共享内存和tiling
-__global__ void matmul_optimized_kernel(const double *A, const double *B, double *C, int M, int N, int K)
+__global__ __launch_bounds__(256) void matmul_optimized_kernel(const double *A, const double *B, double *C, int M, int N, int K)
 {
     __shared__ double As[TILE_SIZE][TILE_SIZE];
     __shared__ double Bs[TILE_SIZE][TILE_SIZE];
