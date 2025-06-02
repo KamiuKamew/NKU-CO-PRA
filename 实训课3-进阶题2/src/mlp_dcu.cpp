@@ -10,13 +10,13 @@
 #include <random>
 
 // 网络架构参数
-#define INPUT_DIM 10        // 滑动窗口大小
-#define HIDDEN_DIM 64       // 隐藏层神经元数量
-#define OUTPUT_DIM 1        // 输出维度
-#define BATCH_SIZE 128      // 批处理大小
-#define EPOCHS 500          // 训练轮数
-#define LEARNING_RATE 0.001 // 学习率
-#define TRAIN_RATIO 0.8     // 训练集比例
+#define INPUT_DIM 10         // 滑动窗口大小
+#define HIDDEN_DIM 64        // 隐藏层神经元数量
+#define OUTPUT_DIM 1         // 输出维度
+#define BATCH_SIZE 128       // 批处理大小
+#define EPOCHS 500           // 训练轮数
+#define LEARNING_RATE 0.0005 // 降低学习率获得更好收敛
+#define TRAIN_RATIO 0.8      // 训练集比例
 
 // HIP错误检查宏
 #define HIP_CHECK(call)                                                                                                  \
@@ -196,7 +196,7 @@ public:
 
         // 随机初始化权重 (Xavier初始化)
         std::random_device rd;
-        std::mt19937 gen(rd());
+        std::mt19937 gen(42); // 使用固定种子确保一致性
         std::normal_distribution<double> dis_W1(0.0, sqrt(2.0 / INPUT_DIM));
         std::normal_distribution<double> dis_W2(0.0, sqrt(2.0 / HIDDEN_DIM));
 
@@ -609,7 +609,8 @@ int main()
 
     double best_loss = 1e10;
     int patience = 0;
-    const int max_patience = 50; // early stopping patience
+    const int max_patience = 20;         // 降低patience，更早停止
+    const double min_improvement = 1e-6; // 最小改进阈值
 
     for (int epoch = 0; epoch < EPOCHS; epoch++)
     {
@@ -656,7 +657,7 @@ int main()
         double avg_loss = total_loss / num_batches;
 
         // Early stopping检查
-        if (avg_loss < best_loss)
+        if (avg_loss < best_loss - min_improvement)
         {
             best_loss = avg_loss;
             patience = 0;
@@ -666,7 +667,9 @@ int main()
             patience++;
             if (patience >= max_patience)
             {
-                std::cout << "Early stopping triggered at epoch " << epoch + 1 << std::endl;
+                std::cout << "Early stopping triggered at epoch " << epoch + 1
+                          << " (no improvement > " << min_improvement << " for "
+                          << max_patience << " epochs)" << std::endl;
                 break;
             }
         }
