@@ -176,13 +176,13 @@ int main()
     auto start1 = std::chrono::high_resolution_clock::now();
     mlp_forward(X, W1, B1, W2, B2, Y_basic);
     auto end1 = std::chrono::high_resolution_clock::now();
-    auto time1 = std::chrono::duration_cast<std::chrono::milliseconds>(end1 - start1).count();
+    auto time1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - start1).count() / 1000000.0;
 
     // 优化版本性能测试
     auto start2 = std::chrono::high_resolution_clock::now();
     mlp_forward_optimized(X, W1, B1, W2, B2, Y_optimized);
     auto end2 = std::chrono::high_resolution_clock::now();
-    auto time2 = std::chrono::duration_cast<std::chrono::milliseconds>(end2 - start2).count();
+    auto time2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end2 - start2).count() / 1000000.0;
 
     // 性能统计
     std::cout << "\n=== CPU Performance Results ===" << std::endl;
