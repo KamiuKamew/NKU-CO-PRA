@@ -119,10 +119,10 @@ public:
     // 反向传播
     void backward(const std::vector<double> &input, const std::vector<double> &target)
     {
-        // 计算输出层梯度
+        // 计算输出层梯度 (已归一化)
         for (int i = 0; i < BATCH_SIZE * OUTPUT_DIM; i++)
         {
-            grad_output[i] = 2.0 * (output[i] - target[i]) / (BATCH_SIZE * OUTPUT_DIM);
+            grad_output[i] = 2.0 * (output[i] - target[i]) / BATCH_SIZE;
         }
 
         // 计算W2梯度
@@ -135,10 +135,11 @@ public:
                 {
                     grad_W2[i * OUTPUT_DIM + j] += hidden[b * HIDDEN_DIM + i] * grad_output[b * OUTPUT_DIM + j];
                 }
+                grad_W2[i * OUTPUT_DIM + j] /= BATCH_SIZE; // 归一化
             }
         }
 
-        // 计算b2梯度
+        // 计算b2梯度 (对batch维度求和并归一化)
         std::fill(grad_b2.begin(), grad_b2.end(), 0.0);
         for (int j = 0; j < OUTPUT_DIM; j++)
         {
@@ -146,6 +147,7 @@ public:
             {
                 grad_b2[j] += grad_output[b * OUTPUT_DIM + j];
             }
+            grad_b2[j] /= BATCH_SIZE; // 归一化
         }
 
         // 计算隐藏层梯度
@@ -180,10 +182,11 @@ public:
                 {
                     grad_W1[i * HIDDEN_DIM + j] += input[b * INPUT_DIM + i] * grad_hidden[b * HIDDEN_DIM + j];
                 }
+                grad_W1[i * HIDDEN_DIM + j] /= BATCH_SIZE; // 归一化
             }
         }
 
-        // 计算b1梯度
+        // 计算b1梯度 (对batch维度求和并归一化)
         std::fill(grad_b1.begin(), grad_b1.end(), 0.0);
         for (int j = 0; j < HIDDEN_DIM; j++)
         {
@@ -191,6 +194,38 @@ public:
             {
                 grad_b1[j] += grad_hidden[b * HIDDEN_DIM + j];
             }
+            grad_b1[j] /= BATCH_SIZE; // 归一化
+        }
+
+        // 梯度裁剪 (防止梯度爆炸)
+        double clip_value = 5.0;
+        for (int i = 0; i < INPUT_DIM * HIDDEN_DIM; i++)
+        {
+            if (grad_W1[i] > clip_value)
+                grad_W1[i] = clip_value;
+            else if (grad_W1[i] < -clip_value)
+                grad_W1[i] = -clip_value;
+        }
+        for (int i = 0; i < HIDDEN_DIM; i++)
+        {
+            if (grad_b1[i] > clip_value)
+                grad_b1[i] = clip_value;
+            else if (grad_b1[i] < -clip_value)
+                grad_b1[i] = -clip_value;
+        }
+        for (int i = 0; i < HIDDEN_DIM * OUTPUT_DIM; i++)
+        {
+            if (grad_W2[i] > clip_value)
+                grad_W2[i] = clip_value;
+            else if (grad_W2[i] < -clip_value)
+                grad_W2[i] = -clip_value;
+        }
+        for (int i = 0; i < OUTPUT_DIM; i++)
+        {
+            if (grad_b2[i] > clip_value)
+                grad_b2[i] = clip_value;
+            else if (grad_b2[i] < -clip_value)
+                grad_b2[i] = -clip_value;
         }
     }
 
@@ -367,6 +402,10 @@ int main()
     std::cout << "\n=== 开始CPU训练 ===" << std::endl;
     auto train_start = std::chrono::high_resolution_clock::now();
 
+    double best_loss = 1e10;
+    int patience = 0;
+    const int max_patience = 50; // early stopping patience
+
     for (int epoch = 0; epoch < EPOCHS; epoch++)
     {
         double total_loss = 0.0;
@@ -398,6 +437,21 @@ int main()
 
             // 计算损失
             double batch_loss = model.computeLoss(batch_y);
+
+            // NaN检查
+            if (std::isnan(batch_loss) || std::isinf(batch_loss))
+            {
+                std::cerr << "检测到NaN或Inf损失，提前停止训练! Epoch: " << epoch << ", Batch: " << batch << std::endl;
+                goto training_complete;
+            }
+
+            // 损失爆炸检查
+            if (batch_loss > 1e6)
+            {
+                std::cerr << "损失过大 (" << batch_loss << ")，提前终止! Epoch: " << epoch << ", Batch: " << batch << std::endl;
+                goto training_complete;
+            }
+
             total_loss += batch_loss;
 
             // 反向传播
@@ -407,17 +461,38 @@ int main()
             model.updateWeights(LEARNING_RATE);
         }
 
-        if ((epoch + 1) % 50 == 0)
+        double avg_loss = total_loss / num_batches;
+
+        // Early stopping检查
+        if (avg_loss < best_loss)
+        {
+            best_loss = avg_loss;
+            patience = 0;
+        }
+        else
+        {
+            patience++;
+            if (patience >= max_patience)
+            {
+                std::cout << "Early stopping triggered at epoch " << epoch + 1 << std::endl;
+                break;
+            }
+        }
+
+        if ((epoch + 1) % 10 == 0 || epoch < 20)
         {
             std::cout << "Epoch " << epoch + 1 << "/" << EPOCHS
-                      << ", 平均损失: " << total_loss / num_batches << std::endl;
+                      << ", 平均损失: " << avg_loss
+                      << ", 最佳损失: " << best_loss
+                      << ", Patience: " << patience << std::endl;
         }
     }
 
+training_complete:
     auto train_end = std::chrono::high_resolution_clock::now();
     double train_time = std::chrono::duration<double, std::milli>(train_end - train_start).count();
 
-    std::cout << "CPU训练完成! 训练时间: " << train_time << " ms" << std::endl;
+    std::cout << "CPU训练完成! 训练时间: " << train_time << " ms, 最终最佳损失: " << best_loss << std::endl;
 
     // 4. 测试推理性能
     std::cout << "\n=== 开始CPU推理测试 ===" << std::endl;
@@ -472,6 +547,7 @@ int main()
     std::cout << "平均每样本推理时间: " << infer_time / test_samples << " ms" << std::endl;
     std::cout << "推理吞吐量: " << test_samples * 1000.0 / infer_time << " 样本/秒" << std::endl;
     std::cout << "归一化MSE: " << mse << std::endl;
+    std::cout << "最终训练损失: " << best_loss << std::endl;
 
     std::cout << "\n=== CPU预测结果对比 (前10个样本) ===" << std::endl;
     for (int i = 0; i < test_samples; i++)

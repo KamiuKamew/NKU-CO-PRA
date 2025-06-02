@@ -94,12 +94,51 @@ __global__ void mse_loss_kernel(const double *pred, const double *target, double
 }
 
 // 输出层梯度计算 kernel (MSE)
-__global__ void output_grad_kernel(const double *pred, const double *target, double *grad, int size)
+__global__ void output_grad_kernel(const double *pred, const double *target, double *grad, int batch_size, int output_dim)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_size = batch_size * output_dim;
+    if (idx < total_size)
+    {
+        grad[idx] = 2.0 * (pred[idx] - target[idx]) / batch_size;
+    }
+}
+
+// 偏置梯度计算 kernel (对batch维度求和)
+__global__ void reduce_bias_grad_kernel(const double *grad_output, double *grad_bias, int batch_size, int output_dim)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < output_dim)
+    {
+        double sum = 0.0;
+        for (int i = 0; i < batch_size; i++)
+        {
+            sum += grad_output[i * output_dim + idx];
+        }
+        grad_bias[idx] = sum / batch_size; // 归一化
+    }
+}
+
+// 梯度缩放 kernel
+__global__ void scale_gradient_kernel(double *grad, double scale, int size)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size)
     {
-        grad[idx] = 2.0 * (pred[idx] - target[idx]) / size;
+        grad[idx] *= scale;
+    }
+}
+
+// 梯度裁剪 kernel
+__global__ void clip_gradient_kernel(double *grad, int size, double clip_value)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        if (grad[idx] > clip_value)
+            grad[idx] = clip_value;
+        else if (grad[idx] < -clip_value)
+            grad[idx] = -clip_value;
     }
 }
 
@@ -272,9 +311,9 @@ public:
     {
         dim3 block(16, 16);
 
-        // 计算输出层梯度
+        // 计算输出层梯度 (已经归一化)
         int threads = (BATCH_SIZE * OUTPUT_DIM + 255) / 256;
-        output_grad_kernel<<<threads, 256>>>(d_output, d_target, d_grad_output, BATCH_SIZE * OUTPUT_DIM);
+        output_grad_kernel<<<threads, 256>>>(d_output, d_target, d_grad_output, BATCH_SIZE, OUTPUT_DIM);
         HIP_CHECK(hipDeviceSynchronize());
 
         // 计算W2梯度: grad_W2 = hidden^T * grad_output
@@ -286,10 +325,16 @@ public:
         matmul_kernel<<<grid_grad_W2, block>>>(d_W2_T, d_grad_output, d_grad_W2, HIDDEN_DIM, OUTPUT_DIM, BATCH_SIZE);
         HIP_CHECK(hipDeviceSynchronize());
 
-        // 计算b2梯度 (对grad_output按batch求和)
-        HIP_CHECK(hipMemset(d_grad_b2, 0, OUTPUT_DIM * sizeof(double)));
-        // 简化实现：直接复制第一个样本的梯度作为偏置梯度
-        HIP_CHECK(hipMemcpy(d_grad_b2, d_grad_output, OUTPUT_DIM * sizeof(double), hipMemcpyDeviceToDevice));
+        // 归一化W2梯度
+        double scale = 1.0 / BATCH_SIZE;
+        int w2_threads = (HIDDEN_DIM * OUTPUT_DIM + 255) / 256;
+        scale_gradient_kernel<<<w2_threads, 256>>>(d_grad_W2, scale, HIDDEN_DIM * OUTPUT_DIM);
+        HIP_CHECK(hipDeviceSynchronize());
+
+        // 计算b2梯度 (对batch维度求和并归一化)
+        int b2_threads = (OUTPUT_DIM + 255) / 256;
+        reduce_bias_grad_kernel<<<b2_threads, 256>>>(d_grad_output, d_grad_b2, BATCH_SIZE, OUTPUT_DIM);
+        HIP_CHECK(hipDeviceSynchronize());
 
         // 计算隐藏层梯度: grad_hidden = grad_output * W2^T
         transpose_kernel<<<grid_grad_W2, block>>>(d_W2, d_W2_T, HIDDEN_DIM, OUTPUT_DIM);
@@ -313,9 +358,23 @@ public:
         matmul_kernel<<<grid_grad_W1, block>>>(d_W1_T, d_grad_hidden, d_grad_W1, INPUT_DIM, HIDDEN_DIM, BATCH_SIZE);
         HIP_CHECK(hipDeviceSynchronize());
 
-        // 计算b1梯度
-        HIP_CHECK(hipMemset(d_grad_b1, 0, HIDDEN_DIM * sizeof(double)));
-        HIP_CHECK(hipMemcpy(d_grad_b1, d_grad_hidden, HIDDEN_DIM * sizeof(double), hipMemcpyDeviceToDevice));
+        // 归一化W1梯度
+        int w1_threads = (INPUT_DIM * HIDDEN_DIM + 255) / 256;
+        scale_gradient_kernel<<<w1_threads, 256>>>(d_grad_W1, scale, INPUT_DIM * HIDDEN_DIM);
+        HIP_CHECK(hipDeviceSynchronize());
+
+        // 计算b1梯度 (对batch维度求和并归一化)
+        int b1_threads = (HIDDEN_DIM + 255) / 256;
+        reduce_bias_grad_kernel<<<b1_threads, 256>>>(d_grad_hidden, d_grad_b1, BATCH_SIZE, HIDDEN_DIM);
+        HIP_CHECK(hipDeviceSynchronize());
+
+        // 梯度裁剪 (防止梯度爆炸)
+        double clip_value = 5.0;
+        clip_gradient_kernel<<<w1_threads, 256>>>(d_grad_W1, INPUT_DIM * HIDDEN_DIM, clip_value);
+        clip_gradient_kernel<<<b1_threads, 256>>>(d_grad_b1, HIDDEN_DIM, clip_value);
+        clip_gradient_kernel<<<w2_threads, 256>>>(d_grad_W2, HIDDEN_DIM * OUTPUT_DIM, clip_value);
+        clip_gradient_kernel<<<b2_threads, 256>>>(d_grad_b2, OUTPUT_DIM, clip_value);
+        HIP_CHECK(hipDeviceSynchronize());
     }
 
     // 更新参数
@@ -507,6 +566,10 @@ int main()
     std::cout << "\n=== 开始训练 ===" << std::endl;
     auto train_start = std::chrono::high_resolution_clock::now();
 
+    double best_loss = 1e10;
+    int patience = 0;
+    const int max_patience = 50; // early stopping patience
+
     for (int epoch = 0; epoch < EPOCHS; epoch++)
     {
         double total_loss = 0.0;
@@ -525,6 +588,21 @@ int main()
 
             // 计算损失
             double batch_loss = model.computeLoss(d_y_train + start_idx);
+
+            // NaN检查
+            if (std::isnan(batch_loss) || std::isinf(batch_loss))
+            {
+                std::cerr << "检测到NaN或Inf损失，提前停止训练! Epoch: " << epoch << ", Batch: " << batch << std::endl;
+                goto training_complete;
+            }
+
+            // 损失爆炸检查
+            if (batch_loss > 1e6)
+            {
+                std::cerr << "损失过大 (" << batch_loss << ")，提前终止! Epoch: " << epoch << ", Batch: " << batch << std::endl;
+                goto training_complete;
+            }
+
             total_loss += batch_loss;
 
             // 反向传播
@@ -534,17 +612,38 @@ int main()
             model.updateWeights(LEARNING_RATE);
         }
 
-        if ((epoch + 1) % 50 == 0)
+        double avg_loss = total_loss / num_batches;
+
+        // Early stopping检查
+        if (avg_loss < best_loss)
+        {
+            best_loss = avg_loss;
+            patience = 0;
+        }
+        else
+        {
+            patience++;
+            if (patience >= max_patience)
+            {
+                std::cout << "Early stopping triggered at epoch " << epoch + 1 << std::endl;
+                break;
+            }
+        }
+
+        if ((epoch + 1) % 10 == 0 || epoch < 20)
         {
             std::cout << "Epoch " << epoch + 1 << "/" << EPOCHS
-                      << ", 平均损失: " << total_loss / num_batches << std::endl;
+                      << ", 平均损失: " << avg_loss
+                      << ", 最佳损失: " << best_loss
+                      << ", Patience: " << patience << std::endl;
         }
     }
 
+training_complete:
     auto train_end = std::chrono::high_resolution_clock::now();
     double train_time = std::chrono::duration<double, std::milli>(train_end - train_start).count();
 
-    std::cout << "训练完成! 训练时间: " << train_time << " ms" << std::endl;
+    std::cout << "训练完成! 训练时间: " << train_time << " ms, 最终最佳损失: " << best_loss << std::endl;
 
     // 5. 测试推理性能
     std::cout << "\n=== 开始推理测试 ===" << std::endl;
@@ -590,6 +689,7 @@ int main()
     std::cout << "平均每样本推理时间: " << infer_time / test_samples << " ms" << std::endl;
     std::cout << "推理吞吐量: " << test_samples * 1000.0 / infer_time << " 样本/秒" << std::endl;
     std::cout << "归一化MSE: " << mse << std::endl;
+    std::cout << "最终训练损失: " << best_loss << std::endl;
 
     std::cout << "\n=== 预测结果对比 (前10个样本) ===" << std::endl;
     for (int i = 0; i < test_samples; i++)
