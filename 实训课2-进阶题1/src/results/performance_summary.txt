@@ -1,0 +1,4 @@
+Method,Time_ms,Speedup
+CPU,0.375,1.0
+DCU_Basic,0.664,0.56
+DCU_Optimized,0.145,2.59

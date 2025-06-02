@@ -1,0 +1,15 @@
+MLP Forward Propagation - Optimized DCU Implementation
+Network: 1024×10 → 10×20 (ReLU) → 20×5
+Optimizations: Shared Memory + Tiling + Kernel Fusion + Async Memory
+
+=== Optimized Performance Results ===
+CPU Time: 0.233 ms
+DCU Time (Optimized): 0.142 ms
+Speedup: 1.64085x
+
+✓ Validation PASSED: Optimized DCU results match CPU baseline
+
+=== Sample Outputs ===
+Batch[0]: 3.6021 1.61555 2.39682 -2.6155 -0.577641 
+Batch[1]: 4.41813 2.52256 2.82815 -1.09 -0.100387 
+Batch[2]: 4.46007 1.99593 1.48938 -4.04249 -0.183676 

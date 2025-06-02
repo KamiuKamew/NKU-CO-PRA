@@ -1,0 +1,9 @@
+MLP Forward Propagation - DCU Implementation
+Network: 1024×10 → 10×20 (ReLU) → 20×5
+
+=== Performance Results ===
+CPU Time: 0.227 ms
+DCU Time: 0.585 ms
+Speedup: 0.388034x
+
+✓ Validation PASSED: DCU results match CPU baseline
