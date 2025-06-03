@@ -10,13 +10,13 @@
 #include <random>
 
 // 网络架构参数
-#define INPUT_DIM 10         // 滑动窗口大小
-#define HIDDEN_DIM 64        // 隐藏层神经元数量
-#define OUTPUT_DIM 1         // 输出维度
-#define BATCH_SIZE 128       // 批处理大小
-#define EPOCHS 500           // 训练轮数
-#define LEARNING_RATE 0.0005 // 降低学习率获得更好收敛
-#define TRAIN_RATIO 0.8      // 训练集比例
+#define INPUT_DIM 10       // 滑动窗口大小
+#define HIDDEN_DIM 32      // 隐藏层神经元数量
+#define OUTPUT_DIM 1       // 输出维度
+#define BATCH_SIZE 256     // 批处理大小
+#define EPOCHS 200         // 训练轮数
+#define LEARNING_RATE 1e-4 // 降低学习率获得更好收敛
+#define TRAIN_RATIO 0.8    // 训练集比例
 
 // HIP错误检查宏
 #define HIP_CHECK(call)                                                                                                  \
@@ -422,60 +422,25 @@ public:
         HIP_CHECK(hipMemcpy(output, d_output, BATCH_SIZE * OUTPUT_DIM * sizeof(double), hipMemcpyDeviceToHost));
     }
 
-    // 推理专用前向传播 (使用独立输出缓冲区)
-    void forward_infer(const double *d_input, double *d_out, int batch_size)
-    {
-        dim3 block(16, 16);
-        dim3 grid_hidden((HIDDEN_DIM + block.x - 1) / block.x, (batch_size + block.y - 1) / block.y);
-        dim3 grid_output((OUTPUT_DIM + block.x - 1) / block.x, (batch_size + block.y - 1) / block.y);
-
-        // 分配临时隐藏层缓冲区（推理时不保存状态）
-        double *d_temp_hidden, *d_temp_hidden_no_relu;
-        HIP_CHECK(hipMalloc(&d_temp_hidden, batch_size * HIDDEN_DIM * sizeof(double)));
-        HIP_CHECK(hipMalloc(&d_temp_hidden_no_relu, batch_size * HIDDEN_DIM * sizeof(double)));
-
-        // 第一层: hidden = input * W1 + b1
-        matmul_kernel<<<grid_hidden, block>>>(d_input, d_W1, d_temp_hidden_no_relu, batch_size, HIDDEN_DIM, INPUT_DIM);
-        HIP_CHECK(hipDeviceSynchronize());
-
-        int bias_threads = (batch_size * HIDDEN_DIM + 255) / 256;
-        add_bias_kernel<<<bias_threads, 256>>>(d_temp_hidden_no_relu, d_b1, batch_size, HIDDEN_DIM);
-        HIP_CHECK(hipDeviceSynchronize());
-
-        // 复制到hidden并应用ReLU
-        HIP_CHECK(hipMemcpy(d_temp_hidden, d_temp_hidden_no_relu, batch_size * HIDDEN_DIM * sizeof(double), hipMemcpyDeviceToDevice));
-        int relu_threads = (batch_size * HIDDEN_DIM + 255) / 256;
-        relu_kernel<<<relu_threads, 256>>>(d_temp_hidden, batch_size * HIDDEN_DIM);
-        HIP_CHECK(hipDeviceSynchronize());
-
-        // 第二层: output = hidden * W2 + b2
-        matmul_kernel<<<grid_output, block>>>(d_temp_hidden, d_W2, d_out, batch_size, OUTPUT_DIM, HIDDEN_DIM);
-        HIP_CHECK(hipDeviceSynchronize());
-
-        bias_threads = (batch_size * OUTPUT_DIM + 255) / 256;
-        add_bias_kernel<<<bias_threads, 256>>>(d_out, d_b2, batch_size, OUTPUT_DIM);
-        HIP_CHECK(hipDeviceSynchronize());
-
-        // 清理临时缓冲区
-        hipFree(d_temp_hidden);
-        hipFree(d_temp_hidden_no_relu);
-    }
-
-    // 推理函数（修复版本）
+    // 推理函数（优化版本 - 避免频繁内存分配）
     void predict(const double *d_input, double *output, int batch_size)
     {
-        // 分配独立的输出缓冲区
-        double *d_temp_output;
-        HIP_CHECK(hipMalloc(&d_temp_output, batch_size * OUTPUT_DIM * sizeof(double)));
+        // 创建临时输入缓冲区，填充到BATCH_SIZE
+        double *d_temp_input;
+        HIP_CHECK(hipMalloc(&d_temp_input, BATCH_SIZE * INPUT_DIM * sizeof(double)));
 
-        // 使用独立的前向传播，不影响训练状态
-        forward_infer(d_input, d_temp_output, batch_size);
+        // 清零并复制实际输入
+        HIP_CHECK(hipMemset(d_temp_input, 0, BATCH_SIZE * INPUT_DIM * sizeof(double)));
+        HIP_CHECK(hipMemcpy(d_temp_input, d_input, batch_size * INPUT_DIM * sizeof(double), hipMemcpyDeviceToDevice));
 
-        // 拷贝结果到主机
-        HIP_CHECK(hipMemcpy(output, d_temp_output, batch_size * OUTPUT_DIM * sizeof(double), hipMemcpyDeviceToHost));
+        // 使用现有的forward函数（复用训练时的缓冲区）
+        forward(d_temp_input);
+
+        // 拷贝结果
+        HIP_CHECK(hipMemcpy(output, d_output, batch_size * OUTPUT_DIM * sizeof(double), hipMemcpyDeviceToHost));
 
         // 清理
-        hipFree(d_temp_output);
+        hipFree(d_temp_input);
     }
 };
 
