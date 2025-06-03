@@ -10,13 +10,13 @@
 #include <random>
 
 // 网络架构参数
-#define INPUT_DIM 10       // 滑动窗口大小
-#define HIDDEN_DIM 32      // 隐藏层神经元数量
-#define OUTPUT_DIM 1       // 输出维度
-#define BATCH_SIZE 256     // 批处理大小
-#define EPOCHS 200         // 训练轮数
-#define LEARNING_RATE 1e-4 // 降低学习率获得更好收敛
-#define TRAIN_RATIO 0.8    // 训练集比例
+#define INPUT_DIM 10         // 滑动窗口大小
+#define HIDDEN_DIM 64        // 隐藏层神经元数量
+#define OUTPUT_DIM 1         // 输出维度
+#define BATCH_SIZE 128       // 批处理大小
+#define EPOCHS 10000         // 训练轮数
+#define LEARNING_RATE 0.0005 // 降低学习率获得更好收敛
+#define TRAIN_RATIO 0.8      // 训练集比例
 
 // HIP错误检查宏
 #define HIP_CHECK(call)                                                                                                  \
@@ -533,7 +533,7 @@ int main()
     std::cout << "=== 基于DCU的MLP低轨卫星带宽预测系统 ===" << std::endl;
 
     // 1. 加载和预处理数据
-    std::vector<double> raw_data = load_json_bandwidth("../data/starlink_bw.json");
+    std::vector<double> raw_data = load_json_bandwidth("./data/starlink_bw.json");
     if (raw_data.empty())
     {
         std::cerr << "数据加载失败!" << std::endl;
