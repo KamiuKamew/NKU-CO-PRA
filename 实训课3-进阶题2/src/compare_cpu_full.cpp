@@ -13,7 +13,7 @@
 #define HIDDEN_DIM 64
 #define OUTPUT_DIM 1
 #define BATCH_SIZE 128
-#define EPOCHS 500
+#define EPOCHS 10000
 #define LEARNING_RATE 0.0005
 #define TRAIN_RATIO 0.8
 
@@ -198,38 +198,24 @@ public:
         }
 
         // 梯度裁剪 (防止梯度爆炸)
-        double clip_value = 5.0;
-        for (int i = 0; i < INPUT_DIM * HIDDEN_DIM; i++)
+        double max_grad_norm = 1.0;
+        for (auto &grad : grad_W1)
         {
-            if (grad_W1[i] > clip_value)
-                grad_W1[i] = clip_value;
-            else if (grad_W1[i] < -clip_value)
-                grad_W1[i] = -clip_value;
+            if (grad > max_grad_norm)
+                grad = max_grad_norm;
+            if (grad < -max_grad_norm)
+                grad = -max_grad_norm;
         }
-        for (int i = 0; i < HIDDEN_DIM; i++)
+        for (auto &grad : grad_W2)
         {
-            if (grad_b1[i] > clip_value)
-                grad_b1[i] = clip_value;
-            else if (grad_b1[i] < -clip_value)
-                grad_b1[i] = -clip_value;
-        }
-        for (int i = 0; i < HIDDEN_DIM * OUTPUT_DIM; i++)
-        {
-            if (grad_W2[i] > clip_value)
-                grad_W2[i] = clip_value;
-            else if (grad_W2[i] < -clip_value)
-                grad_W2[i] = -clip_value;
-        }
-        for (int i = 0; i < OUTPUT_DIM; i++)
-        {
-            if (grad_b2[i] > clip_value)
-                grad_b2[i] = clip_value;
-            else if (grad_b2[i] < -clip_value)
-                grad_b2[i] = -clip_value;
+            if (grad > max_grad_norm)
+                grad = max_grad_norm;
+            if (grad < -max_grad_norm)
+                grad = -max_grad_norm;
         }
     }
 
-    // 更新参数
+    // 更新权重
     void updateWeights(double lr)
     {
         for (int i = 0; i < INPUT_DIM * HIDDEN_DIM; i++)
@@ -262,32 +248,16 @@ public:
         return loss / (BATCH_SIZE * OUTPUT_DIM);
     }
 
-    // 获取输出
-    const std::vector<double> &getOutput() const
-    {
-        return output;
-    }
-
-    // 推理
+    // 预测
     void predict(const std::vector<double> &input, std::vector<double> &pred, int batch_size)
     {
-        // 创建独立的输入缓冲区（填充到BATCH_SIZE）
-        std::vector<double> temp_input(BATCH_SIZE * INPUT_DIM, 0.0);
-        std::vector<double> temp_output(BATCH_SIZE * OUTPUT_DIM, 0.0);
-        std::vector<double> temp_hidden(BATCH_SIZE * HIDDEN_DIM, 0.0);
-        std::vector<double> temp_hidden_no_relu(BATCH_SIZE * HIDDEN_DIM, 0.0);
+        std::vector<double> temp_hidden(batch_size * HIDDEN_DIM);
+        std::vector<double> temp_hidden_no_relu(batch_size * HIDDEN_DIM);
 
-        // 复制实际输入数据
-        for (int i = 0; i < batch_size * INPUT_DIM; i++)
-        {
-            temp_input[i] = input[i];
-        }
+        // 第一层
+        matmul(input, W1, temp_hidden_no_relu, batch_size, HIDDEN_DIM, INPUT_DIM);
 
-        // 独立的前向传播计算（不影响训练状态）
-        // 第一层: hidden = input * W1 + b1
-        matmul(temp_input, W1, temp_hidden_no_relu, BATCH_SIZE, HIDDEN_DIM, INPUT_DIM);
-
-        for (int i = 0; i < BATCH_SIZE; i++)
+        for (int i = 0; i < batch_size; i++)
         {
             for (int j = 0; j < HIDDEN_DIM; j++)
             {
@@ -295,61 +265,63 @@ public:
             }
         }
 
-        // ReLU激活
-        for (int i = 0; i < BATCH_SIZE * HIDDEN_DIM; i++)
+        // ReLU
+        for (int i = 0; i < batch_size * HIDDEN_DIM; i++)
         {
             temp_hidden[i] = std::max(0.0, temp_hidden_no_relu[i]);
         }
 
-        // 第二层: output = hidden * W2 + b2
-        matmul(temp_hidden, W2, temp_output, BATCH_SIZE, OUTPUT_DIM, HIDDEN_DIM);
+        // 第二层
+        matmul(temp_hidden, W2, pred, batch_size, OUTPUT_DIM, HIDDEN_DIM);
 
-        for (int i = 0; i < BATCH_SIZE; i++)
+        for (int i = 0; i < batch_size; i++)
         {
             for (int j = 0; j < OUTPUT_DIM; j++)
             {
-                temp_output[i * OUTPUT_DIM + j] += b2[j];
+                pred[i * OUTPUT_DIM + j] += b2[j];
             }
-        }
-
-        // 复制结果
-        for (int i = 0; i < batch_size; i++)
-        {
-            pred[i] = temp_output[i];
         }
     }
 };
 
 // ================================ 数据处理函数 ================================
 
-// 加载JSON带宽数据
 std::vector<double> load_json_bandwidth(const std::string &filename)
 {
-    std::ifstream file(filename);
     std::vector<double> data;
-
+    std::ifstream file(filename);
     if (!file.is_open())
     {
         std::cerr << "无法打开文件: " << filename << std::endl;
         return data;
     }
 
+    std::string content;
     std::string line;
-    std::getline(file, line);
+    while (std::getline(file, line))
+    {
+        content += line;
+    }
 
-    // 移除首尾的方括号
-    line = line.substr(1, line.length() - 2);
+    // 移除方括号和空格
+    content.erase(std::remove(content.begin(), content.end(), '['), content.end());
+    content.erase(std::remove(content.begin(), content.end(), ']'), content.end());
+    content.erase(std::remove(content.begin(), content.end(), ' '), content.end());
 
-    std::stringstream ss(line);
+    // 按逗号分割
+    std::stringstream ss(content);
     std::string token;
 
     while (std::getline(ss, token, ','))
     {
-        // 移除空格
-        token.erase(std::remove_if(token.begin(), token.end(), ::isspace), token.end());
-        if (!token.empty())
+        try
         {
-            data.push_back(std::stod(token));
+            double value = std::stod(token);
+            data.push_back(value);
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "解析带宽值失败: " << token << std::endl;
         }
     }
 
@@ -357,7 +329,6 @@ std::vector<double> load_json_bandwidth(const std::string &filename)
     return data;
 }
 
-// 数据归一化
 void normalize_data(std::vector<double> &data, double &min_val, double &max_val)
 {
     min_val = *std::min_element(data.begin(), data.end());
@@ -371,7 +342,6 @@ void normalize_data(std::vector<double> &data, double &min_val, double &max_val)
     std::cout << "数据归一化完成, 范围: [" << min_val << ", " << max_val << "]" << std::endl;
 }
 
-// 数据反归一化
 void denormalize_data(std::vector<double> &data, double min_val, double max_val)
 {
     for (auto &val : data)
@@ -380,22 +350,18 @@ void denormalize_data(std::vector<double> &data, double min_val, double max_val)
     }
 }
 
-// 创建滑动窗口数据集
 void create_dataset(const std::vector<double> &data, std::vector<double> &X, std::vector<double> &y)
 {
     int num_samples = data.size() - INPUT_DIM;
-
     X.resize(num_samples * INPUT_DIM);
     y.resize(num_samples);
 
     for (int i = 0; i < num_samples; i++)
     {
-        // 输入：连续INPUT_DIM个时间点
         for (int j = 0; j < INPUT_DIM; j++)
         {
             X[i * INPUT_DIM + j] = data[i + j];
         }
-        // 目标：下一个时间点
         y[i] = data[i + INPUT_DIM];
     }
 
@@ -406,7 +372,7 @@ void create_dataset(const std::vector<double> &data, std::vector<double> &X, std
 
 int main()
 {
-    std::cout << "=== CPU基准版MLP低轨卫星带宽预测系统 ===" << std::endl;
+    std::cout << "=== CPU完整版MLP低轨卫星带宽预测系统 (10000轮训练) ===" << std::endl;
 
     // 1. 加载和预处理数据
     std::vector<double> raw_data = load_json_bandwidth("data/starlink_bw.json");
@@ -432,13 +398,10 @@ int main()
     // 3. 创建和训练模型
     CPUMLPNetwork model;
 
-    std::cout << "\n=== 开始CPU训练 ===" << std::endl;
+    std::cout << "\n=== 开始CPU完整训练 (无早停) ===" << std::endl;
     auto train_start = std::chrono::high_resolution_clock::now();
 
     double best_loss = 1e10;
-    int patience = 0;
-    const int max_patience = 20;         // 降低patience，更早停止
-    const double min_improvement = 1e-6; // 最小改进阈值
 
     for (int epoch = 0; epoch < EPOCHS; epoch++)
     {
@@ -497,30 +460,17 @@ int main()
 
         double avg_loss = total_loss / num_batches;
 
-        // Early stopping检查
-        if (avg_loss < best_loss - min_improvement)
+        // 记录最佳损失
+        if (avg_loss < best_loss)
         {
             best_loss = avg_loss;
-            patience = 0;
-        }
-        else
-        {
-            patience++;
-            if (patience >= max_patience)
-            {
-                std::cout << "Early stopping triggered at epoch " << epoch + 1
-                          << " (no improvement > " << min_improvement << " for "
-                          << max_patience << " epochs)" << std::endl;
-                break;
-            }
         }
 
-        if ((epoch + 1) % 10 == 0 || epoch < 20)
+        if ((epoch + 1) % 100 == 0 || epoch < 20)
         {
             std::cout << "Epoch " << epoch + 1 << "/" << EPOCHS
                       << ", 平均损失: " << avg_loss
-                      << ", 最佳损失: " << best_loss
-                      << ", Patience: " << patience << std::endl;
+                      << ", 最佳损失: " << best_loss << std::endl;
         }
     }
 
@@ -528,7 +478,7 @@ training_complete:
     auto train_end = std::chrono::high_resolution_clock::now();
     double train_time = std::chrono::duration<double, std::milli>(train_end - train_start).count();
 
-    std::cout << "CPU训练完成! 训练时间: " << train_time << " ms, 最终最佳损失: " << best_loss << std::endl;
+    std::cout << "CPU完整训练完成! 训练时间: " << train_time << " ms, 最终最佳损失: " << best_loss << std::endl;
 
     // 4. 测试推理性能
     std::cout << "\n=== 开始CPU推理测试 ===" << std::endl;
@@ -581,7 +531,7 @@ training_complete:
     denormalize_data(actual_denorm, min_val, max_val);
 
     // 6. 输出结果
-    std::cout << "\n=== CPU性能评测结果 ===" << std::endl;
+    std::cout << "\n=== CPU完整性能评测结果 ===" << std::endl;
     std::cout << "训练时间: " << train_time << " ms" << std::endl;
     std::cout << "推理时间: " << infer_time << " ms (" << test_samples << " 个样本)" << std::endl;
     std::cout << "平均每样本推理时间: " << infer_time / test_samples << " ms" << std::endl;
@@ -589,7 +539,7 @@ training_complete:
     std::cout << "归一化MSE: " << mse << std::endl;
     std::cout << "最终训练损失: " << best_loss << std::endl;
 
-    std::cout << "\n=== CPU预测结果对比 (前10个样本) ===" << std::endl;
+    std::cout << "\n=== CPU完整预测结果对比 (前10个样本) ===" << std::endl;
     for (int i = 0; i < test_samples; i++)
     {
         std::cout << "样本 " << i + 1 << " - 预测: " << pred_denorm[i]
@@ -597,6 +547,6 @@ training_complete:
                   << " Mbps, 误差: " << abs(pred_denorm[i] - actual_denorm[i]) << " Mbps" << std::endl;
     }
 
-    std::cout << "\n=== CPU基准测试完成 ===" << std::endl;
+    std::cout << "\n=== CPU完整基准测试完成 ===" << std::endl;
     return 0;
 }

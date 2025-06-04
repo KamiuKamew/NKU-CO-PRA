@@ -17,7 +17,7 @@
 #define P 512
 #define BLOCK_SIZE 16
 
-// 主要修改函数
+// DCU矩阵乘法内核
 __global__ void matmul_kernel(const double *A, const double *B, double *C, int n, int m, int p)
 {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -34,6 +34,7 @@ __global__ void matmul_kernel(const double *A, const double *B, double *C, int n
     }
 }
 
+// 初始化矩阵
 void init_matrix(std::vector<double> &mat)
 {
     std::mt19937 gen(42);
@@ -43,6 +44,7 @@ void init_matrix(std::vector<double> &mat)
     return;
 }
 
+// CPU基准矩阵乘法
 void matmul_cpu(const std::vector<double> &A, const std::vector<double> &B, std::vector<double> &C)
 {
     for (int i = 0; i < N; ++i)
@@ -56,6 +58,7 @@ void matmul_cpu(const std::vector<double> &A, const std::vector<double> &B, std:
     return;
 }
 
+// 验证结果
 bool validate(const std::vector<double> &ref, const std::vector<double> &test)
 {
     for (size_t i = 0; i < ref.size(); ++i)
@@ -64,7 +67,7 @@ bool validate(const std::vector<double> &ref, const std::vector<double> &test)
     return true;
 }
 
-// 性能测试函数
+// 性能结果保存
 void benchmark_and_save(const std::string &method, double time_ms)
 {
     std::ofstream outfile("performance_results.txt", std::ios::app);
@@ -73,7 +76,7 @@ void benchmark_and_save(const std::string &method, double time_ms)
 
 int main()
 {
-    const int NUM_RUNS = 5; // 每种方法运行5次取平均
+    const int NUM_RUNS = 5;
     double total_time_cpu = 0.0;
     double total_time_dcu = 0.0;
 
@@ -81,7 +84,6 @@ int main()
     init_matrix(A);
     init_matrix(B);
 
-    // CPU baseline timing
     for (int run = 0; run < NUM_RUNS; ++run)
     {
         auto start = std::chrono::high_resolution_clock::now();
@@ -93,15 +95,12 @@ int main()
     std::cout << "[CPU] Average time: " << avg_time_cpu << " ms" << std::endl;
     benchmark_and_save("CPU", avg_time_cpu);
 
-    // DCU implementation and timing
     double *d_A, *d_B, *d_C;
 
-    // 分配设备内存
     hipMalloc(&d_A, N * M * sizeof(double));
     hipMalloc(&d_B, M * P * sizeof(double));
     hipMalloc(&d_C, N * P * sizeof(double));
 
-    // 设置线程块和网格大小
     dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridDim((P + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
@@ -109,17 +108,13 @@ int main()
     {
         auto start = std::chrono::high_resolution_clock::now();
 
-        // 将数据从主机复制到设备
         hipMemcpy(d_A, A.data(), N * M * sizeof(double), hipMemcpyHostToDevice);
         hipMemcpy(d_B, B.data(), M * P * sizeof(double), hipMemcpyHostToDevice);
 
-        // 启动内核
         hipLaunchKernelGGL(matmul_kernel, gridDim, blockDim, 0, 0, d_A, d_B, d_C, N, M, P);
 
-        // 同步设备
         hipDeviceSynchronize();
 
-        // 将结果从设备复制回主机
         hipMemcpy(C.data(), d_C, N * P * sizeof(double), hipMemcpyDeviceToHost);
 
         auto end = std::chrono::high_resolution_clock::now();

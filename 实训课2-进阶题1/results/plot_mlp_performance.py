@@ -4,28 +4,33 @@ import matplotlib.patches as patches
 import numpy as np
 
 # 读取性能数据
-df = pd.read_csv("mlp_performance_results.txt", header=None, names=["Method", "Time"])
+df = pd.read_csv("results/performance_summary.txt")
 
 # 设置样式
 plt.rcParams["figure.figsize"] = (12, 8)
 plt.rcParams["font.size"] = 12
 
 # 计算加速比
-cpu_time = df[df["Method"] == "CPU"]["Time"].values[0]
-dcu_time = df[df["Method"] == "DCU"]["Time"].values[0]
-speedup = cpu_time / dcu_time
+cpu_time = df[df["Method"] == "CPU"]["Time_ms"].values[0]
+dcu_basic_time = df[df["Method"] == "DCU_Basic"]["Time_ms"].values[0]
+dcu_opt_time = df[df["Method"] == "DCU_Optimized"]["Time_ms"].values[0]
+
+speedup_basic = cpu_time / dcu_basic_time
+speedup_opt = cpu_time / dcu_opt_time
 
 print(f"MLP Performance Analysis:")
-print(f"CPU Time: {cpu_time:.2f} ms")
-print(f"DCU Time: {dcu_time:.2f} ms")
-print(f"Speedup: {speedup:.2f}x")
+print(f"CPU Time: {cpu_time:.3f} ms")
+print(f"DCU Basic Time: {dcu_basic_time:.3f} ms")
+print(f"DCU Optimized Time: {dcu_opt_time:.3f} ms")
+print(f"DCU Basic Speedup: {speedup_basic:.2f}x")
+print(f"DCU Optimized Speedup: {speedup_opt:.2f}x")
 
 # 创建性能对比图
 fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
 
 # 1. 执行时间对比
 colors = ["#FF6B6B", "#4ECDC4"]
-bars1 = ax1.bar(df["Method"], df["Time"], color=colors)
+bars1 = ax1.bar(df["Method"], df["Time_ms"], color=colors)
 ax1.set_title(
     "MLP Forward Propagation - Execution Time", fontsize=14, fontweight="bold"
 )
@@ -33,10 +38,10 @@ ax1.set_ylabel("Time (ms)")
 ax1.set_xlabel("Implementation")
 
 # 添加数值标签
-for i, v in enumerate(df["Time"]):
+for i, v in enumerate(df["Time_ms"]):
     ax1.text(
         i,
-        v + max(df["Time"]) * 0.02,
+        v + max(df["Time_ms"]) * 0.02,
         f"{v:.2f}ms",
         ha="center",
         va="bottom",
@@ -44,7 +49,7 @@ for i, v in enumerate(df["Time"]):
     )
 
 # 2. 对数坐标时间对比
-ax2.bar(df["Method"], df["Time"], color=colors)
+ax2.bar(df["Method"], df["Time_ms"], color=colors)
 ax2.set_yscale("log")
 ax2.set_title(
     "MLP Forward Propagation - Time (Log Scale)", fontsize=14, fontweight="bold"
@@ -54,8 +59,12 @@ ax2.set_xlabel("Implementation")
 ax2.grid(True, alpha=0.3, axis="y")
 
 # 3. 加速比展示
-speedup_data = [1.0, speedup]
-bars3 = ax3.bar(["Baseline (CPU)", "DCU"], speedup_data, color=["#FF6B6B", "#4ECDC4"])
+speedup_data = [1.0, speedup_basic, speedup_opt]
+bars3 = ax3.bar(
+    ["Baseline (CPU)", "DCU Basic", "DCU Optimized"],
+    speedup_data,
+    color=["#FF6B6B", "#4ECDC4", "#FF6B6B"],
+)
 ax3.set_title("Speedup Relative to CPU Baseline", fontsize=14, fontweight="bold")
 ax3.set_ylabel("Speedup (x)")
 ax3.axhline(y=1, color="red", linestyle="--", alpha=0.7, label="Baseline")
@@ -114,7 +123,8 @@ Network Complexity:
 • Layer 1: (1024×10) @ (10×20) = 204,800 operations
 • Layer 2: (1024×20) @ (20×5) = 102,400 operations
 • Total Operations: ~307K
-• Speedup Achieved: {speedup:.2f}x
+• Speedup Achieved: {speedup_basic:.2f}x (Basic)
+• Speedup Achieved: {speedup_opt:.2f}x (Optimized)
 """
 
 ax4.text(
@@ -134,9 +144,9 @@ plt.close()
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
 # 1. 时间分布饼图
-sizes = [cpu_time, dcu_time]
-labels = ["CPU Time", "DCU Time"]
-explode = (0.1, 0)  # 突出显示DCU
+sizes = [cpu_time, dcu_basic_time, dcu_opt_time]
+labels = ["CPU Time", "DCU Basic Time", "DCU Optimized Time"]
+explode = (0.1, 0, 0)  # 突出显示DCU
 
 ax1.pie(
     sizes,
@@ -152,7 +162,7 @@ ax1.set_title("Time Distribution: CPU vs DCU", fontsize=14, fontweight="bold")
 # 2. 效率对比
 efficiency_metrics = ["Execution Time", "Energy Efficiency", "Throughput"]
 cpu_scores = [100, 40, 30]  # 相对分数
-dcu_scores = [100 / speedup, 95, 100]  # DCU相对优势
+dcu_scores = [100 / speedup_basic, 95, 100]  # DCU相对优势
 
 x = np.arange(len(efficiency_metrics))
 width = 0.35
@@ -200,7 +210,14 @@ print(f"  - Hidden → Output: 20 → 5")
 print(f"  - Total Parameters: {10*20 + 20 + 20*5 + 5} weights + biases")
 
 print(f"\nPerformance Results:")
-print(f"  - CPU Execution Time: {cpu_time:.2f} ms")
-print(f"  - DCU Execution Time: {dcu_time:.2f} ms")
-print(f"  - Speedup: {speedup:.2f}x")
-print(f"  - Efficiency: {(speedup/speedup)*100:.1f}% of theoretical maximum")
+print(f"  - CPU Execution Time: {cpu_time:.3f} ms")
+print(f"  - DCU Basic Execution Time: {dcu_basic_time:.3f} ms")
+print(f"  - DCU Optimized Execution Time: {dcu_opt_time:.3f} ms")
+print(f"  - DCU Basic Speedup: {speedup_basic:.2f}x")
+print(f"  - DCU Optimized Speedup: {speedup_opt:.2f}x")
+print(
+    f"  - Efficiency: {(speedup_basic/speedup_basic)*100:.1f}% of theoretical maximum (Basic)"
+)
+print(
+    f"  - Efficiency: {(speedup_opt/speedup_opt)*100:.1f}% of theoretical maximum (Optimized)"
+)

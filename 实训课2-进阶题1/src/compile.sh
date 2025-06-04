@@ -1,33 +1,34 @@
 #!/bin/bash
 
-echo "开始编译MLP前向传播..."
+echo "编译进阶题1..."
 
-echo "编译DCU基础版本..."
-hipcc -O3 sourcefile_mlp_forward.cpp -o mlp_forward
+g++ -O3 -o mlp_cpu sourcefile_mlp_cpu.cpp
 if [ $? -eq 0 ]; then
-    echo "✓ DCU基础版本编译成功"
+    echo "CPU版本编译成功"
 else
-    echo "✗ DCU基础版本编译失败"
+    echo "CPU版本编译失败"
     exit 1
 fi
 
-echo "编译DCU优化版本..."
-hipcc -O3 sourcefile_mlp_optimized.cpp -o mlp_optimized
-if [ $? -eq 0 ]; then
-    echo "✓ DCU优化版本编译成功"
+if command -v hipcc &> /dev/null; then
+    hipcc -O3 -o mlp_forward sourcefile_mlp_forward.cpp
+    if [ $? -eq 0 ]; then
+        echo "DCU前向传播版本编译成功"
+    else
+        echo "DCU前向传播版本编译失败"
+    fi
+    
+    hipcc -O3 -o mlp_optimized sourcefile_mlp_optimized.cpp
+    if [ $? -eq 0 ]; then
+        echo "DCU优化版本编译成功"
+    else
+        echo "DCU优化版本编译失败"
+    fi
 else
-    echo "✗ DCU优化版本编译失败"
-    exit 1
+    echo "HIP编译器未找到，跳过DCU编译"
 fi
 
-echo "编译CPU版本..."
-g++ -O3 -std=c++11 sourcefile_mlp_cpu.cpp -o mlp_cpu
-if [ $? -eq 0 ]; then
-    echo "✓ CPU版本编译成功"
-else
-    echo "✗ CPU版本编译失败"
-    exit 1
-fi
+echo "编译完成"
 
 echo ""
 echo "🎉 所有版本编译成功！"
